@@ -7,15 +7,12 @@ Tibero Database Backend Driver for Django
     DATABASES = {
         'default': {
             'ENGINE': "django_tibero",
+            'NAME': "tibero",
             'HOST': "127.0.0.1,8629",
             'USER': "tibero",
             'PASSWORD': "tmax",
-            'NAME': "tibero",
             'OPTIONS': {
                 'dsn': "tibero",
-                'driver': "Tibero",
-                'host_is_server': True,
-                'dbms_type': "tibero",
             },
         }
     }
