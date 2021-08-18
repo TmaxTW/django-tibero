@@ -50,10 +50,11 @@ def _setup_environment(environ):
 
 _setup_environment([
     # Oracle takes client-side character set encoding from the environment.
-    ('NLS_LANG', '.UTF8'),
+    ('TB_NLS_LANG', 'UTF8'),
     # This prevents unicode from getting mangled by getting encoded into the
     # potentially non-unicode database character set.
-    ('ORA_NCHAR_LITERAL_REPLACE', 'TRUE'),
+    ('TBCLI_WCHAR_TYPE', 'UCS2'),
+    #('ORA_NCHAR_LITERAL_REPLACE', 'TRUE'),
 ])
 
 
