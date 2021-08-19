@@ -14,6 +14,9 @@ Tibero Database Backend Driver for Django
             'PASSWORD': "tmax",
             'OPTIONS': {
                 'dsn': "tibero",
+                'unicode_results': False,
+                'connection_timeout': 0,
+                'db_shell', "iusql",
             },
         }
     }

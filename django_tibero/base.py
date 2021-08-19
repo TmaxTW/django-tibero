@@ -221,7 +221,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         options = conn_params.get('OPTIONS', {})
         dsn = options.get('dsn', None)
         cstr_parts = {}
-        cstr_parts['DSN'] = dsn
+        cstr_parts['DSN'] = dsn if dsn is not None else database
         cstr_parts['UID'] = user
         cstr_parts['PWD'] = password
         cstr_parts['DATABASE'] = database

@@ -3,11 +3,12 @@ from __future__ import unicode_literals
 import datetime
 import re
 import uuid
+import six
 
 from django.conf import settings
 from django.db.backends.base.operations import BaseDatabaseOperations
 from django.db.backends.utils import truncate_name
-from django.utils import six, timezone
+from django.utils import timezone
 from django.utils.encoding import force_bytes, force_text
 
 from .base import Database

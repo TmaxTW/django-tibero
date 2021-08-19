@@ -5,7 +5,6 @@ from django.conf import settings
 from django.db.backends.base.creation import BaseDatabaseCreation
 from django.db.utils import DatabaseError
 from django.utils.functional import cached_property
-#from django.utils.six import input
 
 TEST_DATABASE_PREFIX = 'test_'
 PASSWORD = 'Im_a_lumberjack'

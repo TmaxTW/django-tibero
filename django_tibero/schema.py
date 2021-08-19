@@ -3,10 +3,10 @@ import binascii
 import copy
 import datetime
 import re
+import six
 
 from django.db.backends.base.schema import BaseDatabaseSchemaEditor
 from django.db.utils import DatabaseError
-from django.utils import six
 from django.utils.encoding import force_text
 from django.utils.encoding import force_bytes
 
