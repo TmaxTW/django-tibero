@@ -1,8 +1,10 @@
-# django-tibero
-Tibero Database Backend Driver for Django
+# Tibero Database Backend Driver for Django
+Forked from django Oracle database backend, switched to pyodbc connection
 
-## Use django-tibero from github repository
-* pip3 install git+https://github.com/cpyang/django-tibero.git  
+* Install django-tibero from github repository  
+  ```code
+  pip3 install git+https://github.com/cpyang/django-tibero.git  
+  ```
 * Modify mysite/settings.py with Tibero as default database  
   ```yaml
     DATABASES = {
@@ -16,7 +18,7 @@ Tibero Database Backend Driver for Django
                 'dsn': "tibero",
                 'unicode_results': False,
                 'connection_timeout': 0,
-                'db_shell', "iusql",
+                'dbshell', "iusql",
             },
         }
     }
