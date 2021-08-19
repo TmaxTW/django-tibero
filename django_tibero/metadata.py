@@ -28,6 +28,6 @@
 
 __version__ = "1.0.0"
 __maintainer__ = "Conrad Yang"
-__maintainer_email__ = "conrad.yang@tmaxsoft.com"
+__maintainer_email__ = "cpyang@gmail.com"
 __license__ = "Apache License"
 
