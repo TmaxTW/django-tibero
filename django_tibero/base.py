@@ -100,6 +100,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
     # Any format strings starting with "qn_" are quoted before being used in the
     # output (the "qn_" prefix is stripped before the lookup is performed.
     data_types = {
+        'SmallAutoField': 'NUMBER(5)',
         'AutoField': 'NUMBER(11)',
         'BigAutoField': 'NUMBER(19)',
         'BinaryField': 'BLOB',
