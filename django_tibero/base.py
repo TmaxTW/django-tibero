@@ -235,6 +235,10 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         conn = None
         conn = Database.connect(connstr, unicode_results=unicode_results,
                                 timeout=timeout)
+        #conn.setdecoding(pyodbc.SQL_CHAR, encoding='utf-8')
+        #conn.setdecoding(pyodbc.SQL_WCHAR, encoding='utf-8')
+        #conn.setdecoding(pyodbc.SQL_WMETADATA, encoding='utf-16le')
+        conn.setencoding(encoding='utf-8')
         return conn 
 
     def init_connection_state(self):
