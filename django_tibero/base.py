@@ -230,6 +230,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         connstr = encode_connection_string(cstr_parts)
 
         unicode_results = options.get('unicode_results', False)
+        sql_trace = options.get('sql_trace', False)
         timeout = options.get('connection_timeout', 0)
 
         conn = None
@@ -239,6 +240,8 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         #conn.setdecoding(pyodbc.SQL_WCHAR, encoding='utf-8')
         #conn.setdecoding(pyodbc.SQL_WMETADATA, encoding='utf-16le')
         conn.setencoding(encoding='utf-8')
+        if sql_trace:
+            conn.cursor().execute('ALTER SESSION SET SQL_TRACE=Y')
         return conn 
 
     def init_connection_state(self):

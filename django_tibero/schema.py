@@ -3,7 +3,6 @@ import binascii
 import copy
 import datetime
 import re
-import six
 
 from django.db.backends.base.schema import BaseDatabaseSchemaEditor
 from django.db.utils import DatabaseError
@@ -38,9 +37,9 @@ class DatabaseSchemaEditor(BaseDatabaseSchemaEditor):
     def quote_value(self, value):
         if isinstance(value, (datetime.date, datetime.time, datetime.datetime)):
             return "'%s'" % value
-        elif isinstance(value, six.string_types):
-            return "'%s'" % six.text_type(value).replace("\'", "\'\'")
-        elif isinstance(value, six.buffer_types):
+        elif isinstance(value, str):
+            return "'%s'" % value.replace("\'", "\'\'")
+        elif isinstance(value, (bytes, bytearray, memoryview)):
             return "'%s'" % force_text(binascii.hexlify(value))
         elif isinstance(value, bool):
             return "1" if value else "0"
