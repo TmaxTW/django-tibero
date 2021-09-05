@@ -398,7 +398,7 @@ class OracleParam(object):
             # To transmit to the database, we need Unicode if supported
             # To get size right, we must consider bytes.
             self.force_bytes = convert_unicode(param, cursor.charset, strings_only)
-            if isinstance(self.force_bytes, six.string_types):
+            if isinstance(self.force_bytes, str):
                 # We could optimize by only converting up to 4000 bytes here
                 string_size = len(force_bytes(param, cursor.charset, strings_only))
         if hasattr(param, 'input_size'):
@@ -594,6 +594,6 @@ def to_unicode(s):
     Convert strings to Unicode objects (and return all other data types
     unchanged).
     """
-    if isinstance(s, six.string_types):
+    if isinstance(s, str):
         return force_text(s)
     return s

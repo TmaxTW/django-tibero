@@ -3,7 +3,6 @@ from __future__ import unicode_literals
 import datetime
 import re
 import uuid
-import six
 
 from django.conf import settings
 from django.db.backends.base.operations import BaseDatabaseOperations
@@ -193,7 +192,7 @@ WHEN (new.%(col_name)s IS NULL)
             value = bool(value)
         return value
 
-    # cx_Oracle always returns datetime.datetime objects for
+    # Oracle and Tibero always returns datetime.datetime objects for
     # DATE and TIMESTAMP columns, but Django wants to see a
     # python datetime.date, .time, or .datetime.
 
@@ -219,7 +218,7 @@ WHEN (new.%(col_name)s IS NULL)
         return value
 
     def convert_empty_values(self, value, expression, connection):
-        # Oracle stores empty strings as null. We need to undo this in
+        # Oracle and Tibero stores empty strings as null. We need to undo this in
         # order to adhere to the Django convention of using the empty
         # string instead of null, but only if the field accepts the
         # empty string.
@@ -246,13 +245,7 @@ WHEN (new.%(col_name)s IS NULL)
             return "%s"
 
     def last_executed_query(self, cursor, sql, params):
-        # https://cx-oracle.readthedocs.io/en/latest/cursor.html#Cursor.statement
-        # The DB API definition does not define this attribute.
-#        statement = cursor.statement
-#        if statement and six.PY2 and not isinstance(statement, unicode):  # NOQA: unicode undefined on PY3
-#            statement = statement.decode('utf-8')
-        # Unlike Psycopg's `query` and MySQLdb`'s `_last_executed`, CxOracle's
-        # `statement` doesn't contain the query parameters. refs #20010.
+        statement = cursor.statement
         return super(DatabaseOperations, self).last_executed_query(cursor, cursor.last_sql, cursor.last_params)
 
     def last_insert_id(self, cursor, table_name, pk_name):
@@ -416,7 +409,7 @@ WHEN (new.%(col_name)s IS NULL)
         if value is None:
             return None
 
-        if isinstance(value, six.string_types):
+        if isinstance(value, str):
             return datetime.datetime.strptime(value, '%H:%M:%S')
 
         # Oracle doesn't support tz-aware times
