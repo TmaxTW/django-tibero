@@ -10,12 +10,12 @@ Forked from django Oracle database backend, switched to pyodbc connection
   DATABASES = {
       'default': {
           'ENGINE': "django_tibero",
-          'NAME': "tibero",
-          'HOST': "127.0.0.1,8629",
+          # Database DSN from ODBC.INI
+          'NAME': "tibero",                 
           'USER': "tibero",
           'PASSWORD': "tmax",
           'OPTIONS': {
-              'dsn': "tibero",
+              'sql_trace': False,
               'unicode_results': False,
               'connection_timeout': 0,
               'dbshell', "iusql",
