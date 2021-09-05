@@ -245,7 +245,6 @@ WHEN (new.%(col_name)s IS NULL)
             return "%s"
 
     def last_executed_query(self, cursor, sql, params):
-        statement = cursor.statement
         return super(DatabaseOperations, self).last_executed_query(cursor, cursor.last_sql, cursor.last_params)
 
     def last_insert_id(self, cursor, table_name, pk_name):
