@@ -9,9 +9,9 @@ from django.utils.encoding import force_text
 class DatabaseIntrospection(BaseDatabaseIntrospection):
     # Maps type objects to Django Field types.
     data_types_reverse = {
-        Database.SQL_BIGINT: 'AutoField',
-        Database.SQL_BIT: 'BigAutoField',
-        Database.SQL_CHAR: 'BigIntegerField',
+        Database.SQL_BIGINT:            'AutoField',
+        Database.SQL_BIT:               'BigAutoField',
+        Database.SQL_CHAR:              'BigIntegerField',
         Database.SQL_DECIMAL:           'DecimalField',
         Database.SQL_DOUBLE:            'FloatField',
         Database.SQL_FLOAT:             'FloatField',

@@ -240,8 +240,13 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         #conn.setdecoding(pyodbc.SQL_WCHAR, encoding='utf-8')
         #conn.setdecoding(pyodbc.SQL_WMETADATA, encoding='utf-16le')
         conn.setencoding(encoding='utf-8')
+
+        # Prevent use of DAE for parameter size between 4000 and 16000 bytes
+        conn.maxwrite=16000
+
         if sql_trace:
             conn.cursor().execute('ALTER SESSION SET SQL_TRACE=Y')
+
         return conn 
 
     def init_connection_state(self):
@@ -407,6 +412,8 @@ class OracleParam(object):
         elif string_size > 4000:
             # Mark any string param greater than 4000 characters as a CLOB.
             self.input_size = Database.CLOB
+        elif isinstance(param, datetime.datetime):
+            self.input_size = Database.SQL_TYPE_TIMESTAMP
         else:
             self.input_size = None
 
