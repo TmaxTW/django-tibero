@@ -12,6 +12,7 @@ import platform
 import sys
 import warnings
 import six
+from contextlib import contextmanager
 
 from django.conf import settings
 from django.db import utils
@@ -20,8 +21,33 @@ from django.db.backends.base.validation import BaseDatabaseValidation
 from django.utils import timezone
 #from django.utils.deprecation import RemovedInDjango30Warning
 from django.utils.duration import duration_string
-from django.utils.encoding import force_bytes, force_text
+from django.utils.encoding import force_bytes, force_text, force_str
 from django.utils.functional import cached_property
+
+@contextmanager
+def wrap_oracle_errors():
+    try:
+        yield
+    except Database.DatabaseError as e:
+        # cx_Oracle raises a cx_Oracle.DatabaseError exception with the
+        # following attributes and values:
+        #  code = 2091
+        #  message = 'ORA-02091: transaction rolled back
+        #            'ORA-02291: integrity constraint (TEST_DJANGOTEST.SYS
+        #               _C00102056) violated - parent key not found'
+        #            or:
+        #            'ORA-00001: unique constraint (DJANGOTEST.DEFERRABLE_
+        #               PINK_CONSTRAINT) violated
+        # Convert that case to Django's IntegrityError exception.
+        x = e.args[0]
+        if (
+            hasattr(x, 'code') and
+            hasattr(x, 'message') and
+            x.code == 2091 and
+            ('ORA-02291' in x.message or 'ORA-00001' in x.message)
+        ):
+            raise IntegrityError(*tuple(e.args))
+        raise
 
 def encode_connection_string(fields):
     return ';'.join('%s=%s' % (k, encode_value(v)) for k, v in fields.items())
@@ -236,12 +262,18 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         conn = None
         conn = Database.connect(connstr, unicode_results=unicode_results,
                                 timeout=timeout)
+
         #conn.setdecoding(pyodbc.SQL_CHAR, encoding='utf-8')
         #conn.setdecoding(pyodbc.SQL_WCHAR, encoding='utf-8')
         #conn.setdecoding(pyodbc.SQL_WMETADATA, encoding='utf-16le')
         conn.setencoding(encoding='utf-8')
+
+        # Prevent use of DAE for parameter size between 4000 and 16000 bytes
+        conn.maxwrite=16000
+
         if sql_trace:
             conn.cursor().execute('ALTER SESSION SET SQL_TRACE=Y')
+
         return conn 
 
     def init_connection_state(self):
@@ -353,8 +385,250 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         except ValueError:
             return None
 
+class OracleParam:
+    """
+    Wrapper object for formatting parameters for Oracle. If the string
+    representation of the value is large enough (greater than 4000 characters)
+    the input size needs to be set as CLOB. Alternatively, if the parameter
+    has an `input_size` attribute, then the value of the `input_size` attribute
+    will be used instead. Otherwise, no input size will be set for the
+    parameter when executing the query.
+    """
 
-class OracleParam(object):
+    def __init__(self, param, cursor, strings_only=False):
+        # With raw SQL queries, datetimes can reach this function
+        # without being converted by DateTimeField.get_db_prep_value.
+        if settings.USE_TZ and (isinstance(param, datetime.datetime) and
+                                not isinstance(param, Oracle_datetime)):
+            param = Oracle_datetime.from_datetime(param)
+
+        string_size = 0
+        # Oracle doesn't recognize True and False correctly.
+        if param is True:
+            param = 1
+        elif param is False:
+            param = 0
+        if hasattr(param, 'bind_parameter'):
+            self.force_bytes = param.bind_parameter(cursor)
+        elif isinstance(param, (Database.Binary, datetime.timedelta)):
+            self.force_bytes = param
+        else:
+            # To transmit to the database, we need Unicode if supported
+            # To get size right, we must consider bytes.
+            self.force_bytes = force_str(param, cursor.charset, strings_only)
+            if isinstance(self.force_bytes, str):
+                # We could optimize by only converting up to 4000 bytes here
+                string_size = len(force_bytes(param, cursor.charset, strings_only))
+        if hasattr(param, 'input_size'):
+            # If parameter has `input_size` attribute, use that.
+            self.input_size = param.input_size
+        elif string_size > 4000:
+            # Mark any string param greater than 4000 characters as a CLOB.
+            self.input_size = Database.CLOB
+        elif isinstance(param, datetime.datetime):
+            self.input_size = Database.SQL_TYPE_TIMESTAMP
+        else:
+            self.input_size = None
+
+
+class VariableWrapper:
+    """
+    An adapter class for cursor variables that prevents the wrapped object
+    from being converted into a string when used to instantiate an OracleParam.
+    This can be used generally for any other object that should be passed into
+    Cursor.execute as-is.
+    """
+
+    def __init__(self, var):
+        self.var = var
+
+    def bind_parameter(self, cursor):
+        return self.var
+
+    def __getattr__(self, key):
+        return getattr(self.var, key)
+
+    def __setattr__(self, key, value):
+        if key == 'var':
+            self.__dict__[key] = value
+        else:
+            setattr(self.var, key, value)
+
+
+class FormatStylePlaceholderCursor_new:
+    """
+    Django uses "format" (e.g. '%s') style placeholders, but Oracle uses ":var"
+    style. This fixes it -- but note that if you want to use a literal "%s" in
+    a query, you'll need to use "%%s".
+    """
+    charset = 'utf-8'
+
+    def __init__(self, connection):
+        self.active = True
+        self.cursor = connection.cursor()
+        """
+        self.cursor.outputtypehandler = self._output_type_handler
+        # Necessary to retrieve decimal values without rounding error.
+        self.cursor.numbersAsStrings = True
+        """
+        # Default arraysize of 1 is highly sub-optimal.
+        self.cursor.arraysize = 100
+        self.connection = connection
+        self.last_sql = ''
+        self.last_params = ()
+
+    @staticmethod
+    def _output_number_converter(value):
+        return decimal.Decimal(value) if '.' in value else int(value)
+
+    @staticmethod
+    def _get_decimal_converter(precision, scale):
+        if scale == 0:
+            return int
+        context = decimal.Context(prec=precision)
+        quantize_value = decimal.Decimal(1).scaleb(-scale)
+        return lambda v: decimal.Decimal(v).quantize(quantize_value, context=context)
+
+    @staticmethod
+    def _output_type_handler(cursor, name, defaultType, length, precision, scale):
+        """
+        Called for each db column fetched from cursors. Return numbers as the
+        appropriate Python type.
+        """
+        if defaultType == Database.NUMBER:
+            if scale == -127:
+                if precision == 0:
+                    # NUMBER column: decimal-precision floating point.
+                    # This will normally be an integer from a sequence,
+                    # but it could be a decimal value.
+                    outconverter = FormatStylePlaceholderCursor._output_number_converter
+                else:
+                    # FLOAT column: binary-precision floating point.
+                    # This comes from FloatField columns.
+                    outconverter = float
+            elif precision > 0:
+                # NUMBER(p,s) column: decimal-precision fixed point.
+                # This comes from IntegerField and DecimalField columns.
+                outconverter = FormatStylePlaceholderCursor._get_decimal_converter(precision, scale)
+            else:
+                # No type information. This normally comes from a
+                # mathematical expression in the SELECT list. Guess int
+                # or Decimal based on whether it has a decimal point.
+                outconverter = FormatStylePlaceholderCursor._output_number_converter
+            return cursor.var(
+                Database.STRING,
+                size=255,
+                arraysize=cursor.arraysize,
+                outconverter=outconverter,
+            )
+
+    def _format_params(self, params):
+        try:
+            return {k: OracleParam(v, self, True) for k, v in params.items()}
+        except AttributeError:
+            return tuple(OracleParam(p, self, True) for p in params)
+
+    def _guess_input_sizes(self, params_list):
+        # Try dict handling; if that fails, treat as sequence
+        if hasattr(params_list[0], 'keys'):
+            sizes = {}
+            for params in params_list:
+                for k, value in params.items():
+                    if value.input_size:
+                        sizes[k] = value.input_size
+            if sizes:
+                self.setinputsizes(**sizes)
+        else:
+            # It's not a list of dicts; it's a list of sequences
+            sizes = [None] * len(params_list[0])
+            for params in params_list:
+                for i, value in enumerate(params):
+                    if value.input_size:
+                        sizes[i] = value.input_size
+            if sizes:
+                self.setinputsizes(*sizes)
+
+    def _param_generator(self, params):
+        # Try dict handling; if that fails, treat as sequence
+        if hasattr(params, 'items'):
+            return {k: v.force_bytes for k, v in params.items()}
+        else:
+            return [p.force_bytes for p in params]
+
+    def _fix_for_params(self, query, params, unify_by_values=False):
+        # cx_Oracle wants no trailing ';' for SQL statements.  For PL/SQL, it
+        # it does want a trailing ';' but not a trailing '/'.  However, these
+        # characters must be included in the original query in case the query
+        # is being passed to SQL*Plus.
+        if query.endswith(';') or query.endswith('/'):
+            query = query[:-1]
+        if params is None:
+            params = []
+        elif hasattr(params, 'keys'):
+            # Handle params as dict
+            args = {k: ":%s" % k for k in params}
+            query = query % args
+        elif unify_by_values and params:
+            # Handle params as a dict with unified query parameters by their
+            # values. It can be used only in single query execute() because
+            # executemany() shares the formatted query with each of the params
+            # list. e.g. for input params = [0.75, 2, 0.75, 'sth', 0.75]
+            # params_dict = {0.75: ':arg0', 2: ':arg1', 'sth': ':arg2'}
+            # args = [':arg0', ':arg1', ':arg0', ':arg2', ':arg0']
+            # params = {':arg0': 0.75, ':arg1': 2, ':arg2': 'sth'}
+            params_dict = {
+                param: ':arg%d' % i
+                for i, param in enumerate(dict.fromkeys(params))
+            }
+            args = [params_dict[param] for param in params]
+            params = {value: key for key, value in params_dict.items()}
+            query = query % tuple(args)
+        else:
+            # Handle params as sequence
+            args = [(':arg%d' % i) for i in range(len(params))]
+            query = query % tuple(args)
+        return query, self._format_params(params)
+
+    def execute(self, query, params=None):
+        query, params = self._fix_for_params(query, params, unify_by_values=True)
+        self._guess_input_sizes([params])
+        with wrap_oracle_errors():
+            return self.cursor.execute(query, self._param_generator(params))
+
+    def executemany(self, query, params=None):
+        if not params:
+            # No params given, nothing to do
+            return None
+        # uniform treatment for sequences and iterables
+        params_iter = iter(params)
+        query, firstparams = self._fix_for_params(query, next(params_iter))
+        # we build a list of formatted params; as we're going to traverse it
+        # more than once, we can't make it lazy by using a generator
+        formatted = [firstparams] + [self._format_params(p) for p in params_iter]
+        self._guess_input_sizes(formatted)
+        with wrap_oracle_errors():
+            return self.cursor.executemany(query, [self._param_generator(p) for p in formatted])
+
+    def close(self):
+        try:
+            self.cursor.close()
+        except Database.InterfaceError:
+            # already closed
+            pass
+
+    def var(self, *args):
+        return VariableWrapper(self.cursor.var(*args))
+
+    def arrayvar(self, *args):
+        return VariableWrapper(self.cursor.arrayvar(*args))
+
+    def __getattr__(self, attr):
+        return getattr(self.cursor, attr)
+
+    def __iter__(self):
+        return iter(self.cursor)
+
+class OracleParam_old(object):
     """
     Wrapper object for formatting parameters for Oracle. If the string
     representation of the value is large enough (greater than 4000 characters)
@@ -411,7 +685,7 @@ class OracleParam(object):
             self.input_size = None
 
 
-class VariableWrapper(object):
+class VariableWrapper_old(object):
     """
     An adapter class for cursor variables that prevents the wrapped object
     from being converted into a string when used to instantiate an OracleParam.
@@ -460,12 +734,41 @@ class FormatStylePlaceholderCursor(object):
     def format_params(self, params):
         fp = []
         if params is not None:
-            for p in params:
-                if isinstance(p, datetime.timedelta):
-                    p = duration_string(p)
-                    if ' ' not in p:
-                        p = '0 ' + p
-                fp.append(p)
+            for param in params:
+                string_size = 0
+                if isinstance(param, datetime.timedelta):
+                    param = duration_string(param)
+                    if ' ' not in param:
+                        param = '0 ' + param
+                # Oracle doesn't recognize True and False correctly.
+                if param is True:
+                    param = 1
+                elif param is False:
+                    param = 0
+                if hasattr(param, 'bind_parameter'):
+                    self.force_bytes = param.bind_parameter(self.cursor)
+                elif isinstance(param, (Database.Binary, datetime.timedelta)):
+                    self.force_bytes = param
+                else:
+                    # To transmit to the database, we need Unicode if supported
+                    # To get size right, we must consider bytes.
+                    self.force_bytes = force_str(param, self.charset)
+                    if isinstance(self.force_bytes, str):
+                        # We could optimize by only converting up to 4000 bytes here
+                        string_size = len(force_bytes(param, self.charset))
+                if hasattr(param, 'input_size'):
+                    # If parameter has `input_size` attribute, use that.
+                    self.input_size = param.input_size
+                elif string_size > 4000:
+                    # Mark any string param greater than 4000 characters as a CLOB.
+                    print(self)
+                    self.input_size = Database.SQL_WLONGVARCHAR
+                elif isinstance(param, datetime.datetime):
+                    self.input_size = Database.SQL_TYPE_TIMESTAMP
+                else:
+                    self.input_size = None
+                print(string_size, self.input_size, param)
+                fp.append(param)
         return tuple(fp)
 
     def format_query(self, query, params):
