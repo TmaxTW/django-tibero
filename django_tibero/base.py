@@ -241,8 +241,8 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         #conn.setdecoding(pyodbc.SQL_WMETADATA, encoding='utf-16le')
         conn.setencoding(encoding='utf-8')
 
-        # Prevent use of DAE for parameter size between 4000 and 16000 bytes
-        conn.maxwrite=16000
+        # Prevent use of DAE for parameter size between 4000 and 32000 bytes
+        conn.maxwrite=32767
 
         if sql_trace:
             conn.cursor().execute('ALTER SESSION SET SQL_TRACE=Y')
